@@ -7,17 +7,43 @@ import android.util.Log;
 
 public class TestActivity extends Activity {
 
-	FileWatcher mWatcher ;
+	FileWatcher mWatcher;
 	final String TAG = TestActivity.class.getSimpleName();
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
 		
 		String sdcard = Environment.getExternalStorageDirectory().getAbsolutePath();
-		mWatcher = new FileWatcher(sdcard, FileWatcher.ANY_CHANGED);
+		String dcim = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM).getAbsolutePath();
+		//mWatcher = new FileWatcher(sdcard,true,FileWatcher.FILE_CHANGED);
+		mWatcher = new FileWatcher(dcim,true,FileWatcher.FILE_CHANGED);
+		mWatcher.setFileListener(mFileListener);
 		mWatcher.startWatching();
 	}
 
+	FileListener mFileListener = new FileListener(){
+
+		@Override
+		public void onFileCreated(String name) {
+			Log.i(TAG, "onFileCreated " + name);
+		}
+
+		@Override
+		public void onFileDeleted(String name) {
+			Log.i(TAG, "onFileDeleted " + name);
+		}
+
+		@Override
+		public void onFileModified(String name) {
+			Log.i(TAG, "onFileModified " + name);
+		}
+
+		@Override
+		public void onFileRenamed(String oldName, String newName) {
+			Log.i(TAG, "onFileRenamed from: " + oldName + " to: " + newName);
+		}
+		
+	};
 	@Override
 	protected void onResume() {
 
@@ -38,7 +64,6 @@ public class TestActivity extends Activity {
 
 	@Override
 	protected void onStop() {
-		
 		super.onStop();
 	}
 
@@ -46,58 +71,5 @@ public class TestActivity extends Activity {
 	protected void onDestroy() {
 		mWatcher.stopWatching();
 		super.onDestroy();
-	}
-
-	
-	class FileWatcher extends FileObserver{
-		public FileWatcher(String path, int mask) {
-			super(path, mask);
-		}
-
-		@Override
-		public void onEvent(int event, String path) {
-			switch (event) {
-			case FileObserver.ACCESS:
-				Log.i(TAG, "ACCESS: " + path);
-				break;
-			case FileObserver.ATTRIB:
-				Log.i(TAG, "ATTRIB: " + path);
-				break;
-			case FileObserver.CLOSE_NOWRITE:
-				Log.i(TAG, "CLOSE_NOWRITE: " + path);
-				break;
-			case FileObserver.CLOSE_WRITE:
-				Log.i(TAG, "CLOSE_WRITE: " + path);
-				break;
-			case FileObserver.CREATE:
-				Log.i(TAG, "CREATE: " + path);
-				break;
-			case FileObserver.DELETE:
-				Log.i(TAG, "DELETE: " + path);
-				break;
-			case FileObserver.DELETE_SELF:
-				Log.i(TAG, "DELETE_SELF: " + path);
-				break;
-			case FileObserver.MODIFY:
-				Log.i(TAG, "MODIFY: " + path);
-				break;
-			case FileObserver.MOVE_SELF:
-				Log.i(TAG, "MOVE_SELF: " + path);
-				break;
-			case FileObserver.MOVED_FROM:
-				Log.i(TAG, "MOVED_FROM: " + path);
-				break;
-			case FileObserver.MOVED_TO:
-				Log.i(TAG, "MOVED_TO: " + path);
-				break;
-			case FileObserver.OPEN:
-				Log.i(TAG, "OPEN: " + path);
-				break;
-			default:
-				Log.i(TAG, "DEFAULT(" + event + ") : " + path);
-				break;
-			}
-		}
-		
 	}
 }

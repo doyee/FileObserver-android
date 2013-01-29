@@ -15,18 +15,17 @@
  */
 
 package custom.fileobserver;
+import android.os.Handler;
+import android.os.HandlerThread;
+import android.os.Process;
+import android.util.Log;
+
+
 import java.io.File;
 import java.io.FileFilter;
 import java.lang.ref.WeakReference;
 import java.util.HashMap;
 import java.util.Iterator;
-
-import custom.fileobserver.TestActivity.FileWatcher;
-
-import android.os.Handler;
-import android.os.HandlerThread;
-import android.os.Process;
-import android.util.Log;
 
 /**
  * Monitors files (using <a href="http://en.wikipedia.org/wiki/Inotify">inotify</a>)
@@ -78,18 +77,26 @@ public abstract class FileObserver {
     /** Event type: The monitored file or directory was moved; monitoring continues */
     public static final int MOVE_SELF = 0x00000800;
    
-    public final static int IN_ISDIR = 0x40000000;
-    /** Event type: a directory create under the mointored directory*/
-    public final static int DIR_CREATE = IN_ISDIR | CREATE;
+
+    public static final int UNMOUNT = 0x00002000;
+    public static final int Q_OVERFLOW = 0x00004000;
+    public static final int IGNORED = 0x00008000; 
+
+    public static final int CLOSE = (CLOSE_WRITE | CLOSE_NOWRITE);
+    public static final int MOVE  = (MOVED_FROM | MOVED_TO);
+
+    public static final int ONLYDIR = 0x01000000;
+    public static final int DONT_FOLLOW = 0x02000000;
+    public static final int MASK_ADD = 0x20000000; 
+    public static final int ISDIR   = 0x40000000 ;
+    public static final int ONESHOT = 0x80000000; 
 
     /** Event mask: All valid event types, combined */
     public static final int ALL_EVENTS = ACCESS | MODIFY | ATTRIB | CLOSE_WRITE
             | CLOSE_NOWRITE | OPEN | MOVED_FROM | MOVED_TO | DELETE | CREATE
             | DELETE_SELF | MOVE_SELF;
+    public static int FILE_CHANGED = CREATE | DELETE | MOVED_FROM | MOVED_TO | CLOSE_WRITE;/* MODIFY | ATTRIB*/;
     
-	public static int ANY_CHANGED = CREATE | DELETE | 
-			DELETE_SELF | MOVED_FROM | MOVED_TO | ATTRIB | MODIFY;
-
     private static final String LOG_TAG = "FileObserver";
 
 
@@ -117,22 +124,26 @@ public abstract class FileObserver {
             int wfd = startWatching(m_fd, path, mask);
 
             Integer i = new Integer(wfd);
-            if (wfd >= 0) {
-                synchronized (mObservers) {
-                    mObservers.put(i, new WeakReference<Object>(observer));
-                    mListPath.put(i, path.replaceFirst(observed, ""));
+            if (wfd <= 0) {
+            	
+            	return i;
+            }
+            
+            synchronized (mObservers) {
+                mObservers.put(i, new WeakReference<Object>(observer));
+                mListPath.put(i, path.replaceFirst(observed, ""));
 
-                    File rootFolder = new File(path);
+                if(observer.mWatchSubDir){
+                	File rootFolder = new File(path);
                     File[] childFolders = rootFolder.listFiles(mFilter);
                     if((childFolders != null))
                     {
                         for(int index = 0; index < childFolders.length; index++)
                             startWatching(observed, childFolders[index].getPath(), mask, observer);
                     }
-
                 }
             }
-
+            
             return i;
         }
 
@@ -175,27 +186,29 @@ public abstract class FileObserver {
 
 			// ...then call out to the observer without the sync lock held
 			if (observer == null) {
+				Log.i(LOG_TAG,"onEvent observer null ,return...");
 				return;
 			}
 
 			try {
-				String parentDir = observer.mPath;
-				String p = mListPath.get(wfd);
-				String observed = parentDir + p ;
+				String observed = observer.mPath ;
+				String newAbsPath = observed + mListPath.get(wfd);
 				if (path != null) {
-					if (p.length() > 0) {
-						p += "/";
+					if (newAbsPath.length() > 0) {
+						newAbsPath += "/";
 					}
-					p += path;
-				}
-				
-				String absPath = parentDir + p;
-				if ((mask & CREATE) != 0 && (mask & IN_ISDIR) != 0) {
-					//auto to watch the subdirectory
-					startWatching(observed, absPath, observer.mMask, observer);
+					newAbsPath += path;
 				}
 
-				observer.onEvent(mask, absPath);
+				if ((mask & (CREATE | ISDIR)) != 0) {
+					//auto to watch new created subdirectory
+					if(observer.mWatchSubDir){
+						startWatching(observed, newAbsPath, observer.mMask, observer);
+					}
+					
+				}
+
+				observer.onEvent(mask, cookie,newAbsPath);
 			} catch (Throwable throwable) {
 				Log.wtf(LOG_TAG, "Unhandled exception in FileObserver "
 						+ observer, throwable);
@@ -234,6 +247,7 @@ public abstract class FileObserver {
     private String mPath;
     private Integer mDescriptor;
     private int mMask;
+    private boolean mWatchSubDir;
     
 	String mThreadName = FileObserver.class.getSimpleName();
 	HandlerThread mThread;
@@ -244,20 +258,26 @@ public abstract class FileObserver {
      */
     public FileObserver(String path) {
         this(path, ALL_EVENTS);
+        
     }
 
+    public FileObserver(String path, int mask) {
+        this(path,false,mask);
+    }
     /**
      * Create a new file observer for a certain file or directory.
      * Monitoring does not start on creation!  You must call
      * {@link #startWatching()} before you will receive events.
      *
      * @param path The file or directory to monitor
+     * @param watchSubDir If the sub directory need monitor ,set to true,default false
      * @param mask The event or events (added together) to watch for
      */
-    public FileObserver(String path, int mask) {
+    public FileObserver(String path, boolean watchSubDir,int mask) {
         mPath = path;
         mMask = mask;
         mDescriptor = -1;
+        mWatchSubDir = watchSubDir;
     }
 
     protected void finalize() {
@@ -272,7 +292,7 @@ public abstract class FileObserver {
     public void startWatching() {
     	mThreadName = FileWatcher.class.getSimpleName();
 		if (mThread == null || !mThread.isAlive()) {
-
+			Log.i(LOG_TAG,"startFileWather new HandlerThread...");
 			mThread = new HandlerThread(mThreadName,Process.THREAD_PRIORITY_BACKGROUND);
 			mThread.setDaemon(true);
 			mThread.start();
@@ -281,9 +301,10 @@ public abstract class FileObserver {
 			mThreadHandler.post(new Runnable() {
 				@Override
 				public void run() {
-
+					Log.i(LOG_TAG,"startWatching mDescriptor:" + mDescriptor);
 			        if (mDescriptor < 0) {
 			            mDescriptor = s_observerThread.startWatching(mPath, mPath, mMask, FileObserver.this);
+			            Log.i(LOG_TAG,"startWatching finished mDescriptor: " + mDescriptor);
 			        }
 				}
 			});
@@ -301,18 +322,21 @@ public abstract class FileObserver {
 			mThreadHandler.post(new Runnable() {
 				@Override
 				public void run() {
-
-			        if (mDescriptor >= 0) {
-			            s_observerThread.stopWatching(mDescriptor, FileObserver.this);
-			            mDescriptor = -1;
+					Log.i(LOG_TAG,"stopWatching mDescriptor:" + mDescriptor);
+			        if (mDescriptor < 0) { 
+			        	Log.i(LOG_TAG,"stopWatching already stopped:" + mDescriptor);
+			        	return;
 			        }
+		            s_observerThread.stopWatching(mDescriptor, FileObserver.this);
+		            mDescriptor = -1;
+		            Log.i(LOG_TAG,"stopWatching finished:" + mDescriptor);
+		            
+		    		mThreadHandler = null;
+		    		mThread.quit();
+		    		mThread = null;
 				}
 			});
 		}
-		mThreadHandler = null;
-		mThread.quit();
-		mThread = null;
-
     }
 
     /**
@@ -329,6 +353,6 @@ public abstract class FileObserver {
      * @param path The path, relative to the main monitored file or directory,
      *     of the file or directory which triggered the event
      */
-    public abstract void onEvent(int event, String path);
+    public abstract void onEvent(int event, int cookie,String path);
 
 }

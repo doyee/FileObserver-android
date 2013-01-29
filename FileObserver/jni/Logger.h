@@ -1,7 +1,6 @@
 #ifndef _AM_FACE_LOG_H_____
 #define _AM_FACE_LOG_H_____
 
-	#define LOG_TAG "FileWatcher"
 	#include <android/log.h>
 
 	#define LOGV(...)  __android_log_print(ANDROID_LOG_VERBOSE,LOG_TAG,__VA_ARGS__)

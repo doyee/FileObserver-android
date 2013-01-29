@@ -23,7 +23,7 @@
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <errno.h>
-#include "Logger.h"
+#include "logger.h"
 
 #define HAVE_INOTIFY
 #ifdef HAVE_INOTIFY
